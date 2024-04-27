@@ -1,3 +1,5 @@
+
+
 ## C language
 
 ### C语言创建内存
@@ -219,7 +221,7 @@ int main() {
 
 参考：[HTTP服务器的本质:tinyhttpd源码分析及拓展 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/24941375)、[EZLippi/Tinyhttpd: Tinyhttpd 是J. David Blackstone在1999年写的一个不到 500 行的超轻量型 Http Server，用来学习非常不错，可以帮助我们真正理解服务器程序的本质。官网:http://tinyhttpd.sourceforge.net (github.com)](https://github.com/EZLippi/Tinyhttpd)
 
-源码:
+#### 头文件:
 
 ```C
 /* J. David's webserver */
@@ -266,7 +268,52 @@ void not_found(int);
 void serve_file(int, const char *);
 int startup(u_short *);
 void unimplemented(int);
+```
 
+
+
+#### accept_request(接收客户端的连接)_重要
+
+```C
+// 预备知识
+//HTTP请求报文格式
+[Method] [URL] [HTTP Version]
+[Headers]
+[Blank Line]
+[Optional Body]
+eg:
+GET /index.html HTTP/1.1
+Host: www.example.com
+User-Agent: Mozilla/5.0
+Accept: text/html
+//没有optional body
+//响应报文格式
+[HTTP Version] [Status Code] [Reason Phrase]
+[Headers]
+[Blank Line]
+[Optional Body]
+eg:
+HTTP/1.1 200 OK
+Date: Mon, 26 Apr 2024 12:00:00 GMT
+Server: Apache
+Content-Type: text/html
+Content-Length: 1234
+
+<!DOCTYPE html>
+<html>
+<head>
+<title>Example Page</title>
+</head>
+<body>
+...
+</body>
+</html>
+//响应体在html里面
+```
+
+
+
+```C
 /**********************************************************************/
 /* A request has caused a call to accept() on the server port to
  * return.  Process the request appropriately.
@@ -275,16 +322,16 @@ void unimplemented(int);
 //接收客户端的连接，并读取请求数据
 void accept_request(int client)
 {
- char buf[1024];
- int numchars;
- char method[255];
- char url[255];
- char path[512];
- size_t i, j;
- struct stat st;
+ char buf[1024]; //存储接受到的请求数据。
+ int numchars; //存储接受到的字符数。
+ char method[255]; //存储请求的类型，例如GET、POST。
+ char url[255]; //存储请求的URL
+ char path[512]; //表示文件路径
+ size_t i, j;  //size_t是无符号整数类型，用于存储内存中对象的大小。其在不同系统上，有着不同的大小，但是能容纳系统能够处理的最大对象大小。
+ struct stat st; //用于存储文件信息
  int cgi = 0;      /* becomes true if server decides this is a CGI
-                    * program */
- char *query_string = NULL;
+                    * program */ //决定是否执行cgi。
+ char *query_string = NULL; //用于存储查询字符串。
 //获取一行HTTP报文数据
  numchars = get_line(client, buf, sizeof(buf));
  //
@@ -332,16 +379,16 @@ void accept_request(int client)
   {
   //如果带有查询参数，需要执行cgi，解析参数，设置标志位为1
    cgi = 1;
-  //将解析参数截取下来
+  //将解析参数截取下来，将'?'字符替换为空白字符。
    *query_string = '\0';
    query_string++;
   }
  }
 //以上已经将起始行解析完毕
 //url中的路径格式化到path
- sprintf(path, "htdocs%s", url);
+ sprintf(path, "htdocs%s", url); //使用sprintf将服务器的根路径与url拼接成完整的文件路径，然后存储在'PATH'中。
 //学习到这里明天继续TODO
-//如果path只是一个目录，默认设置为首页index.html
+//如果path只是一个目录，默认设置为首页index.html(chatGPT说的设置为该目录下的index.html)
  if (path[strlen(path) - 1] == '/')
   strcat(path, "index.html");
  
@@ -378,7 +425,13 @@ void accept_request(int client)
 
  close(client);//因为http是面向无连接的，所以要关闭
 }
+```
 
+
+
+#### bad_request
+
+```C
 /**********************************************************************/
 /* Inform the client that a request it has made has a problem.
  * Parameters: client socket */
@@ -398,7 +451,13 @@ void bad_request(int client)
  sprintf(buf, "such as a POST without a Content-Length.\r\n");
  send(client, buf, sizeof(buf), 0);
 }
+```
 
+
+
+#### cat
+
+```C
 /**********************************************************************/
 /* Put the entire contents of a file out on a socket.  This function
  * is named after the UNIX "cat" command, because it might have been
@@ -448,7 +507,13 @@ void error_die(const char *sc)
  perror(sc);
  exit(1);
 }
+```
 
+![img](https://pic3.zhimg.com/80/v2-a8a9ca946e018c18a9293806fca234ea_720w.webp)
+
+#### execute_cgi_重要
+
+```c
 /**********************************************************************/
 /* Execute a CGI script.  Will need to set environment variables as
  * appropriate.
@@ -472,18 +537,19 @@ void execute_cgi(int client, const char *path,
  if (strcasecmp(method, "GET") == 0)
  //如果是GET请求
  //读取并且丢弃头信息
-  while ((numchars > 0) && strcmp("\n", buf)) 
-   numchars = get_line(client, buf, sizeof(buf));
+  while ((numchars > 0) && strcmp("\n", buf)) //表示读取到一个空行
+   numchars = get_line(client, buf, sizeof(buf)); //读取得到的字符数
  else    
  {
  //处理的请求为POST
   numchars = get_line(client, buf, sizeof(buf));
   while ((numchars > 0) && strcmp("\n", buf))
-  {//循环读取头信息找到Content-Length字段的值
+  {//循环读取头信息找到Content-Length字段的值，Content-Length指定了消息主体的长度。
    buf[15] = '\0';//目的是为了截取Content-Length:
    
    if (strcasecmp(buf, "Content-Length:") == 0)
    	//"Content-Length: 15"
+    //atoi函数接受一个字符串参数，将字符串转换为整数，存储在参数中去。
     content_length = atoi(&(buf[16]));//获取Content-Length的值
    numchars = get_line(client, buf, sizeof(buf));
   }
@@ -502,21 +568,21 @@ void execute_cgi(int client, const char *path,
 //必须在fork()中调用pipe()，否则子进程不会继承文件描述符。
 //两个进程不共享祖先进程，就不能使用pipe。但是可以使用命名管道。
 //pipe(cgi_output)执行成功后，cgi_output[0]:读通道 cgi_output[1]:写通道，这就是为什么说不要被名称所迷惑
- if (pipe(cgi_output) < 0) {
-  cannot_execute(client);
+ if (pipe(cgi_output) < 0) {  //创建输出管道
+  cannot_execute(client); 
   return;
  }
- if (pipe(cgi_input) < 0) {
+ if (pipe(cgi_input) < 0) {  //创建输入管道
   cannot_execute(client);
   return;
  }
 
- if ( (pid = fork()) < 0 ) {
+ if ( (pid = fork()) < 0 ) { //fork创建子进程，如果创建成功则返回进程ID，创建失败则返回-1。
   cannot_execute(client);
   return;
  }
  //fork出一个子进程运行cgi脚本
- if (pid == 0)  /* 子进程: 运行CGI 脚本 */
+ if (pid == 0)  /* 子进程: 运行CGI 脚本 */ //区分父、子进程，当pid==0时，则代表在子进程。
  {
   char meth_env[255];
   char query_env[255];
@@ -579,7 +645,11 @@ void execute_cgi(int client, const char *path,
   waitpid(pid, &status, 0);
  }
 }
+```
 
+#### get_line
+
+```C
 /**********************************************************************/
 /* Get a line from a socket, whether the line ends in a newline,
  * carriage return, or a CRLF combination.  Terminates the string read
@@ -598,7 +668,7 @@ int get_line(int sock, char *buf, int size)
 {
  int i = 0;
  char c = '\0';
- int n;
+ int n; //读取recv函数的返回值，即读取的字节数。
 
  while ((i < size - 1) && (c != '\n'))
  {
@@ -625,7 +695,11 @@ int get_line(int sock, char *buf, int size)
  
  return(i);
 }
+```
 
+#### headers
+
+```C
 /**********************************************************************/
 /* Return the informational HTTP headers about a file. */
 /* Parameters: the socket to print the headers on
@@ -645,7 +719,11 @@ void headers(int client, const char *filename)
  strcpy(buf, "\r\n");
  send(client, buf, strlen(buf), 0);
 }
+```
 
+#### not_found
+
+```C
 /**********************************************************************/
 /* Give a client a 404 not found status message. */
 /**********************************************************************/
@@ -680,6 +758,11 @@ void not_found(int client)
  *              file descriptor
  *             the name of the file to serve */
 /**********************************************************************/
+```
+
+#### serve_file
+
+```C
 //将请求的文件发送回浏览器客户端
 void serve_file(int client, const char *filename)
 {
@@ -713,13 +796,18 @@ void serve_file(int client, const char *filename)
  * Parameters: pointer to variable containing the port to connect on
  * Returns: the socket */
 /**********************************************************************/
+```
+
+#### startup_重要
+
+```C
 //启动服务端
 int startup(u_short *port)
 {
  int httpd = 0;  //定义服务器套接字的文件描述符，初始化为0
  struct sockaddr_in name; //定义一个结构体name，用来设置套接字的地址信息。
 //设置http socket，创建套接字
- httpd = socket(PF_INET, SOCK_STREAM, 0); //调用socket函数来创建一个新的流式套接字，用于IPV4，PF_INET表示协议族，主要用于IPV4的通信。
+ httpd = socket(PF_INET, SOCK_STREAM, 0); //调用socket函数来创建一个新的流式套接字，用于IPV4，PF_INET表示协议族，主要用于IPV4的通信，0表示使用默认协议，通常是TCP。
  if (httpd == -1)
   error_die("socket"); //如果返回-1，则证明生成的流式套接字失败。
  //设置套接字地址结构
@@ -748,7 +836,12 @@ int startup(u_short *port)
 /* Inform the client that the requested web method has not been
  * implemented.
  * Parameter: the client socket */
-/**********************************************************************/
+/*********************************************************************/
+```
+
+#### unimplemented
+
+```C
 void unimplemented(int client)
 {
  char buf[1024];
@@ -771,6 +864,11 @@ void unimplemented(int client)
  send(client, buf, strlen(buf), 0);
 }
 /**********************************************************************/
+```
+
+#### main
+
+```C
 int main(void)
 {
  int server_sock = -1;
