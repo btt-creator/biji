@@ -219,7 +219,7 @@ int main() {
 
 ### TinyHttp项目
 
-参考：[HTTP服务器的本质:tinyhttpd源码分析及拓展 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/24941375)、[EZLippi/Tinyhttpd: Tinyhttpd 是J. David Blackstone在1999年写的一个不到 500 行的超轻量型 Http Server，用来学习非常不错，可以帮助我们真正理解服务器程序的本质。官网:http://tinyhttpd.sourceforge.net (github.com)](https://github.com/EZLippi/Tinyhttpd)
+参考：[HTTP服务器的本质:tinyhttpd源码分析及拓展 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/24941375)、[EZLippi/Tinyhttpd: Tinyhttpd 是J. David Blackstone在1999年写的一个不到 500 行的超轻量型 Http Server，用来学习非常不错，可以帮助我们真正理解服务器程序的本质。官网:http://tinyhttpd.sourceforge.net (github.com)](https://github.com/EZLippi/Tinyhttpd)、[从零开始的tinyhttpd项目_/tinyhttpd-0.1.0-CSDN博客](https://blog.csdn.net/qq_43305312/article/details/123029010)
 
 #### 头文件:
 
@@ -287,7 +287,7 @@ Host: www.example.com
 User-Agent: Mozilla/5.0
 Accept: text/html
 //没有optional body
-//响应报文格式
+//上方的响应报文格式
 [HTTP Version] [Status Code] [Reason Phrase]
 [Headers]
 [Blank Line]
@@ -309,6 +309,7 @@ Content-Length: 1234
 </body>
 </html>
 //响应体在html里面
+//POST方法类似这个
 ```
 
 
@@ -533,7 +534,7 @@ void execute_cgi(int client, const char *path,
  char c;
  int numchars = 1;
  int content_length = -1;
- buf[0] = 'A'; buf[1] = '\0';
+ buf[0] = 'A'; buf[1] = '\0'; //用于保证能正确进入并执行循环。
  if (strcasecmp(method, "GET") == 0)
  //如果是GET请求
  //读取并且丢弃头信息
@@ -585,7 +586,8 @@ void execute_cgi(int client, const char *path,
  if (pid == 0)  /* 子进程: 运行CGI 脚本 */ //区分父、子进程，当pid==0时，则代表在子进程。
  {
   char meth_env[255];
-  char query_env[255];
+  char query_env[255]; //query_enc是包含HTTP请求的查询字符串部分。
+ 					   //eg:http://example.com/index.php?name=John&age=30中查询字符串name=John&age=30
   char length_env[255];
 
   dup2(cgi_output[1], 1);//1代表着stdout，0代表着stdin，将系统标准输出重定向为cgi_output[1]
@@ -595,15 +597,15 @@ void execute_cgi(int client, const char *path,
   close(cgi_input[1]);//关闭了cgi_input中的写通道
   //CGI标准需要将请求的方法存储环境变量中，然后和cgi脚本进行交互
   //存储REQUEST_METHOD
-  sprintf(meth_env, "REQUEST_METHOD=%s", method);
-  putenv(meth_env);
+  sprintf(meth_env, "REQUEST_METHOD=%s", method); //格式话字符串，并将格式化后的结果放在数组中去。
+  putenv(meth_env); //用于将字符串添加到环境中，使得CGI脚本通过查看环境变量了解到被请求的方法。
   if (strcasecmp(method, "GET") == 0) {
   //存储QUERY_STRING
    sprintf(query_env, "QUERY_STRING=%s", query_string);
    putenv(query_env);
   }
   else {   /* POST */
-  	//存储CONTENT_LENGTH
+  	//存储CONTENT_LENGTH，用于获取完整的表单数据。
    sprintf(length_env, "CONTENT_LENGTH=%d", content_length);
    putenv(length_env);
   }
@@ -614,7 +616,7 @@ void execute_cgi(int client, const char *path,
  // execl()用来执行参数path字符串所代表的文件路径，接下来的参数代表执行该文件时传递过去的argv(0)、argv[1]……，最后一个参数必须用空指针(NULL)作结束。
  // 返回值
  // 如果执行成功则函数不会返回，执行失败则直接返回-1，失败原因存于errno中。
-  execl(path, path, NULL);//执行CGI脚本
+  execl(path, path, NULL);//执行CGI脚本 //用新程序替换掉原始的旧程序，替换成功时，新程序开始运行，且不会返回原始程序。
   exit(0);
  } else {    /* 父进程 */
   close(cgi_output[1]);//关闭了cgi_output中的写通道，注意这是父进程中cgi_output变量和子进程要区分开
@@ -622,7 +624,8 @@ void execute_cgi(int client, const char *path,
   if (strcasecmp(method, "POST") == 0)
    for (i = 0; i < content_length; i++) {
    	//开始读取POST中的内容
-    recv(client, &c, 1, 0);
+    recv(client, &c, 1, 0); //recv函数是一种用于从连接的套接字接受数据，其中client表示套接字，&c是一个字符指针。
+       						//1表示只接受一个字节的数据，0表示没有特殊的标志被设置，用于标准的接受操作。
 	//将数据发送给cgi脚本
     write(cgi_input[1], &c, 1);
    }
@@ -637,11 +640,13 @@ void execute_cgi(int client, const char *path,
 //函数说明：waitpid()会暂时停止目前进程的执行, 直到有信号来到或子进程结束. 
 //如果在调用wait()时子进程已经结束, 则wait()会立即返回子进程结束状态值. 子进程的结束状态值会由参数status 返回, 
 //而子进程的进程识别码也会一快返回. 
+//每个进程除了拥有一个自己的pid之外，还属于一个进程组。例如，打开一个程序时，可能打开多个进程，这些进程可能会被分到一个进程组。
 //如果不在意结束状态值, 则参数status 可以设成NULL. 参数pid 为欲等待的子进程识别码, 其他数值意义如下：
-//1、pid<-1 等待进程组识别码为pid 绝对值的任何子进程.
+//1、pid<-1 等待进程组识别码为pid 绝对值的任何子进程.即一个特定进程中的所有子进程。
 //2、pid=-1 等待任何子进程, 相当于wait().
 //3、pid=0 等待进程组识别码与目前进程相同的任何子进程.
 //4、pid>0 等待任何子进程识别码为pid 的子进程.
+//pid<-1能允许指定进程组的所有子进程，而pid=0则限制为当前进程的进程组中的所有子进程、pid>0则等待指定的子进程。
   waitpid(pid, &status, 0);
  }
 }
@@ -670,15 +675,15 @@ int get_line(int sock, char *buf, int size)
  char c = '\0';
  int n; //读取recv函数的返回值，即读取的字节数。
 
- while ((i < size - 1) && (c != '\n'))
+ while ((i < size - 1) && (c != '\n')) //留出一个位置用于空字符'\0'用于终止。
  {
-  n = recv(sock, &c, 1, 0);
+  n = recv(sock, &c, 1, 0); //使用recv从套接字读取一个字符，一次接受一个。即将从sock套接字读取的数据存储到变量c中。
   /* DEBUG printf("%02X\n", c); */
   if (n > 0)
   {
-   if (c == '\r')
+   if (c == '\r') //读取到回车符，先使用MSG_PEEK查看下一个字符。
    {
-    n = recv(sock, &c, 1, MSG_PEEK);
+    n = recv(sock, &c, 1, MSG_PEEK); //用于检查下一个字符是不是\n，需要重新使用一次recv实际读取出来。
     /* DEBUG printf("%02X\n", c); */
     if ((n > 0) && (c == '\n'))
      recv(sock, &c, 1, 0);
@@ -898,3 +903,12 @@ int main(void)
 }
 ```
 
+#### 管道使用原则：
+
+管道的使用原则是，每个管道的读端和写端必须在不同的进程中。如果一个进程需要读取数据，那么另一个进程必须写入数据，反之亦然。管道的任何一端不被使用时应该关闭，以防资源泄漏和潜在的死锁。
+
+
+
+#### 多线程并发
+
+`pthread_detach`用于将指定的线程标记为分离状态，当该线程处于分离状态时，它的资源会在线程终止时立即被回收。
