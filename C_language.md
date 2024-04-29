@@ -219,7 +219,7 @@ int main() {
 
 ### TinyHttp项目
 
-参考：[HTTP服务器的本质:tinyhttpd源码分析及拓展 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/24941375)、[EZLippi/Tinyhttpd: Tinyhttpd 是J. David Blackstone在1999年写的一个不到 500 行的超轻量型 Http Server，用来学习非常不错，可以帮助我们真正理解服务器程序的本质。官网:http://tinyhttpd.sourceforge.net (github.com)](https://github.com/EZLippi/Tinyhttpd)、[从零开始的tinyhttpd项目_/tinyhttpd-0.1.0-CSDN博客](https://blog.csdn.net/qq_43305312/article/details/123029010)
+参考：[HTTP服务器的本质:tinyhttpd源码分析及拓展 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/24941375)、[EZLippi/Tinyhttpd: Tinyhttpd 是J. David Blackstone在1999年写的一个不到 500 行的超轻量型 Http Server，用来学习非常不错，可以帮助我们真正理解服务器程序的本质。官网:http://tinyhttpd.sourceforge.net (github.com)](https://github.com/EZLippi/Tinyhttpd)、[从零开始的tinyhttpd项目_/tinyhttpd-0.1.0-CSDN博客](https://blog.csdn.net/qq_43305312/article/details/123029010)、[Linux Socket编程（不限Linux） - 吴秦 - 博客园 (cnblogs.com)](https://www.cnblogs.com/skynet/archive/2010/12/12/1903949.html)
 
 #### 头文件:
 
@@ -537,7 +537,7 @@ void execute_cgi(int client, const char *path,
  buf[0] = 'A'; buf[1] = '\0'; //用于保证能正确进入并执行循环。
  if (strcasecmp(method, "GET") == 0)
  //如果是GET请求
- //读取并且丢弃头信息
+ //读取并且丢弃头信息，CGI感兴趣的地方在url，而不再头信息，而url已经在accept_request中得到。
   while ((numchars > 0) && strcmp("\n", buf)) //表示读取到一个空行
    numchars = get_line(client, buf, sizeof(buf)); //读取得到的字符数
  else    
@@ -566,7 +566,7 @@ void execute_cgi(int client, const char *path,
 //#include<unistd.h>
 //int pipe(int filedes[2]);
 //返回值：成功，返回0，否则返回-1。参数数组包含pipe使用的两个文件的描述符。fd[0]:读管道，fd[1]:写管道。
-//必须在fork()中调用pipe()，否则子进程不会继承文件描述符。
+//必须在fork()中调用pipe()，否则子进程不会继承文件描述符。即fork必须在pipe之后。
 //两个进程不共享祖先进程，就不能使用pipe。但是可以使用命名管道。
 //pipe(cgi_output)执行成功后，cgi_output[0]:读通道 cgi_output[1]:写通道，这就是为什么说不要被名称所迷惑
  if (pipe(cgi_output) < 0) {  //创建输出管道
@@ -597,7 +597,7 @@ void execute_cgi(int client, const char *path,
   close(cgi_input[1]);//关闭了cgi_input中的写通道
   //CGI标准需要将请求的方法存储环境变量中，然后和cgi脚本进行交互
   //存储REQUEST_METHOD
-  sprintf(meth_env, "REQUEST_METHOD=%s", method); //格式话字符串，并将格式化后的结果放在数组中去。
+  sprintf(meth_env, "REQUEST_METHOD=%s", method); //格式化字符串，并将格式化后的结果放在数组中去。
   putenv(meth_env); //用于将字符串添加到环境中，使得CGI脚本通过查看环境变量了解到被请求的方法。
   if (strcasecmp(method, "GET") == 0) {
   //存储QUERY_STRING
@@ -651,6 +651,10 @@ void execute_cgi(int client, const char *path,
  }
 }
 ```
+
+#### 管道使用原则：
+
+管道的使用原则是，每个管道的读端和写端必须在不同的进程中。如果一个进程需要读取数据，那么另一个进程必须写入数据，反之亦然。管道的任何一端不被使用时应该关闭，以防资源泄漏和潜在的死锁。
 
 #### get_line
 
@@ -793,6 +797,11 @@ void serve_file(int client, const char *filename)
  fclose(resource);//关闭文件句柄
 }
 
+```
+
+#### startup_重要
+
+```C
 /**********************************************************************/
 /* This function starts the process of listening for web connections
  * on a specified port.  If the port is 0, then dynamically allocate a
@@ -801,24 +810,19 @@ void serve_file(int client, const char *filename)
  * Parameters: pointer to variable containing the port to connect on
  * Returns: the socket */
 /**********************************************************************/
-```
-
-#### startup_重要
-
-```C
 //启动服务端
 int startup(u_short *port)
 {
  int httpd = 0;  //定义服务器套接字的文件描述符，初始化为0
  struct sockaddr_in name; //定义一个结构体name，用来设置套接字的地址信息。
 //设置http socket，创建套接字
- httpd = socket(PF_INET, SOCK_STREAM, 0); //调用socket函数来创建一个新的流式套接字，用于IPV4，PF_INET表示协议族，主要用于IPV4的通信，0表示使用默认协议，通常是TCP。
+ httpd = socket(PF_INET, SOCK_STREAM, 0); //调用socket函数来创建一个新的流式套接字，用于IPV4，PF_INET表示协议族，主要用于IPV4的通信，0表示使用默认协议，通常是TCP。创建完成之后存在与协议族，而没有地址。
  if (httpd == -1)
   error_die("socket"); //如果返回-1，则证明生成的流式套接字失败。
  //设置套接字地址结构
  memset(&name, 0, sizeof(name)); //使用memset将套接字的内存初始化为0。
  name.sin_family = AF_INET; //设置地址族为IPV4，与上方的PF_INET类似，一个是地址(Address)，一个是协议（Protocal）
- name.sin_port = htons(*port); //将port指向的端口号转换为网络字节序
+ name.sin_port = htons(*port); //将port指向的端口号从主机字节序转换为网络字节序
  name.sin_addr.s_addr = htonl(INADDR_ANY); //设置服务器套接字地址为任意地址，INADDR_ANY常用于监听任何接口上的连接。
  //绑定套接字，即将httpd与name结构体指定的地址和端口，绑定失败时，则报错。
  if (bind(httpd, (struct sockaddr *)&name, sizeof(name)) < 0)
@@ -837,16 +841,17 @@ int startup(u_short *port)
  return(httpd); //函数返回服务器套接字描述符，供主函数使用。
 }
 
-/**********************************************************************/
-/* Inform the client that the requested web method has not been
- * implemented.
- * Parameter: the client socket */
-/*********************************************************************/
 ```
 
 #### unimplemented
 
 ```C
+
+/**********************************************************************/
+/* Inform the client that the requested web method has not been
+ * implemented.
+ * Parameter: the client socket */
+/*********************************************************************/
 void unimplemented(int client)
 {
  char buf[1024];
@@ -883,18 +888,18 @@ int main(void)
  int client_name_len = sizeof(client_name);
  pthread_t newthread;
 //启动server socket
- server_sock = startup(&port);
+ server_sock = startup(&port); //一个服务器通常只创建一个监听socket描述符
  printf("httpd running on port %d\n", port);
  while (1)
  {
  //接受客户端连接
   client_sock = accept(server_sock,
                        (struct sockaddr *)&client_name,
-                       &client_name_len);
+                       &client_name_len); //建立连接完成，可以传输数据。
   if (client_sock == -1)
    error_die("accept");
  /*启动线程处理新的连接 */
- if (pthread_create(&newthread , NULL, accept_request, client_sock) != 0)
+ if (pthread_create(&newthread , NULL, accept_request, client_sock) != 0) //实现多线程的并发处理
    perror("pthread_create");
  }
 //关闭server socket
@@ -903,12 +908,35 @@ int main(void)
 }
 ```
 
-#### 管道使用原则：
 
-管道的使用原则是，每个管道的读端和写端必须在不同的进程中。如果一个进程需要读取数据，那么另一个进程必须写入数据，反之亦然。管道的任何一端不被使用时应该关闭，以防资源泄漏和潜在的死锁。
 
 
 
 #### 多线程并发
 
 `pthread_detach`用于将指定的线程标记为分离状态，当该线程处于分离状态时，它的资源会在线程终止时立即被回收。
+
+#### 其他知识
+
+首先介绍一个socket，socket是一种抽象概念，提供了在网络上进行通信的接口，其处于应用层与传输层之间。利用三元组(ip地址，协议，端口)标识网络中的进程，而本地则是使用pid进行标识。
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/64efdeb0934245d4b74aebc95eda8741.png)
+
+- 当创建完socket，存在一个名字空间，但它并没有被命名，需要使用`bind()`函数将套接字地址与所创建的套接字号联系起来。套接字地址根据创建socket时的地址协议族不同而不同，所以需要bind在一起。
+
+- 作为服务器，当调用`socket()`和`bind()`之后就需要调用`listen()`来监听这个socket，如果这时候`connect()`发出连接请求，服务端就会收到到这个请求。
+
+- 而客户端则调用`socket()`创建套接字，然后调用`connect()`来发出连接请求，服务器端就会收到到这个请求。
+
+- 这时，当服务器监听到连接请求时，就会使用`accept()`来接受这个请求。
+
+- 当建立完服务器与客户之间的连接时，便可调用网络I/O进行读写操作了。即在该项目中使用`recv()`和`send()`。
+
+- 当完成了相应的读写操作时，就需要关闭相应的socket描述字，使用`close()`进行关闭。
+- 当tcp建立三次握手时，发生在socket中的情况。
+
+![image](https://images.cnblogs.com/cnblogs_com/skynet/201012/201012122157476286.png)
+
+- 四次挥手时的情况。
+
+![image](https://images.cnblogs.com/cnblogs_com/skynet/201012/201012122157494693.png)
